@@ -1,0 +1,49 @@
+name: 'CI Testings'
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+jobs:
+  test:
+    strategy:
+      matrix:
+        platform: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.platform }}
+    steps:
+    - uses: actions/checkout@v3
+    - name: Install from PSGallery
+      shell: pwsh
+      run: |
+        Write-host $PSVersionTable.PSVersion.Major $PSVersionTable.PSRemotingProtocolVersion.Minor
+        Set-PSRepository psgallery -InstallationPolicy trusted
+        Install-Module -Name Pester -RequiredVersion 5.5.0 -confirm:$false -Force -ErrorAction Stop -SkipPublisherCheck
+        Install-Module -Name PSScriptAnalyzer -RequiredVersion 1.21.0 -confirm:$false -Force -ErrorAction Stop -SkipPublisherCheck
+
+    - name: Lint with PSScriptAnalyzer
+      shell: pwsh
+      run: |
+        Invoke-ScriptAnalyzer -Path ".\PwshCIDemo" -Recurse -OutVariable issues
+        $errors   = $issues | ? {$_.Severity -eq 'Error'}
+        $warnings = $issues | ? {$_.Severity -eq 'Warning'}
+        if ($errors) {
+            Write-Error "There were $($errors.Count) errors and $($warnings.Count) warnings total." -ErrorAction Stop
+        } else {
+            Write-Output "There were $($errors.Count) errors and $($warnings.Count) warnings total."
+        }
+
+    - name: Run Pester tests
+      run: |
+        $PesterPreference = New-PesterConfiguration
+        $PesterPreference.Run.Path = ".\PwshCIDemo.Tests"
+        $PesterPreference.CodeCoverage.Enabled = $true
+        $PesterPreference.CodeCoverage.Path = ".\PwshCIDemo\*.ps*1"
+        Invoke-Pester -Configuration $PesterPreference
+      shell: pwsh
+
+    - name: Upload test coverage to Codecov
+      uses: codecov/codecov-action@v1.0.13
+      with:
+        name: Output coverage with Codeocv
+        token: ${{ secrets.CODECOV_TOKEN }}
+        file: coverage.xml
